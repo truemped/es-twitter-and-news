@@ -1,0 +1,137 @@
+{% extends "layout.html" %}
+
+{% block pagetitle %}Tweets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-9">
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <i class="fa fa-bar-chart-o fa-fw"></i> Tweets by domain
+            </div>
+            <!-- /.panel-heading -->
+            <div class="panel-body">
+                <div id="tweets-by-domain"></div>
+            </div>
+            <!-- /.panel-body -->
+        </div>
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <i class="fa fa-clock-o fa-fw"></i> Timeline <small class="text-muted">{{ result['hits']['total'] }}</small>
+            </div>
+            <!-- /.panel-heading -->
+            <div class="panel-body">
+                <ul class="timeline">
+                    {% for tweet in tweets %}
+                    {% if loop.index is even %}
+                    <li class="timeline-inverted">
+                    {% else %}
+                    <li>
+                    {% endif %}
+                        <div class="timeline-badge" style="background-color: white"><img src="{{ tweet['user']['profile_image_url'] }}" />
+                        </div>
+                        <div class="timeline-panel">
+                            <div class="timeline-heading">
+                                <h4 class="timeline-title">{{ tweet['user']['screen_name'] }}</h4>
+                                <p><small class="text-muted"><i class="fa fa-clock-o"></i> {{ tweet['humanized_time'] }} ago via Twitter</small>
+                                <small class="text-muted"><i class="fa fa-retweet"></i> {{ tweet['retweet_count'] }}</small>
+                                <small class="text-muted"><i class="fa fa-star"></i> {{ tweet['favorite_count'] }}</small>
+                                <small><a href="http://twitter.com/{{ tweet['user']['screen_name'] }}/status/{{ tweet['id_str'] }}">source</a></small>
+                                </p>
+                            </div>
+                            <div class="timeline-body">
+                                <p>{{ tweet['text'] | urlize(80) }}</p>
+                                <ul>
+                                    {% for url in tweet['entities']['urls'] %}
+                                    <li>
+                                        {% if 'youtube' in url['expanded_url'] %}
+                                        <small class="text-muted"><i class="fa fa-youtube"></i></small>
+                                        {% endif %}
+                                        <a href="{{ url['expanded_url'] }}">{{ url['display_url'] }}</a>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <!-- /.panel-body -->
+        </div>
+        <!-- /.panel -->
+    </div>
+    <!-- /.col-lg-9 -->
+    <div class="col-lg-3">
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <i class="fa fa-bell fa-fw"></i> Top Tags
+            </div>
+            <!-- /.panel-heading -->
+            <div class="panel-body">
+                <div class="list-group">
+                    {% for tag in result['aggregations']['hashtags']['buckets'] %}
+                    <a href="/?tag={{ tag['key'] }}" class="list-group-item {% if tag['key'] == selected_tag %}active{% endif %}">
+                        <i class="fa fa-tag fa-fw"></i> {{ tag['key'] }}
+                        <span class="pull-right text-muted small"><em>{{ tag['doc_count'] }}</em>
+                        </span>
+                    </a>
+                    {% endfor %}
+                </div>
+                <!-- /.list-group -->
+            </div>
+            <!-- /.panel-body -->
+        </div>
+        <div class="panel panel-default">
+            <div class="panel-heading">
+                <i class="fa fa-bell fa-fw"></i> Top Domains
+            </div>
+            <!-- /.panel-heading -->
+            <div class="panel-body">
+                <div class="list-group">
+                    {% for domain in result['aggregations']['domains']['buckets'] %}
+                    <a href="/?domain={{ domain['key'] }}" class="list-group-item {% if domain['key'] == selected_domain %}active{% endif %}">
+                        <i class="fa fa-tag fa-fw"></i> {{ domain['key'] }}
+                        <span class="pull-right text-muted small"><em>{{ domain['doc_count'] }}</em>
+                        </span>
+                    </a>
+                    {% endfor %}
+                </div>
+                <!-- /.list-group -->
+            </div>
+            <!-- /.panel-body -->
+        </div>
+    </div>
+    <!-- /.col-lg-3 -->
+</div>
+{% endblock %}
+
+{% block customjs %}
+<script type="text/javascript">
+$(function() {
+    Morris.Area({
+        'element': 'tweets-by-domain',
+        'data': [
+{%- for datebucket in date_hist_buckets -%}
+            {
+{%- for k in datebucket -%}
+{%- if k == 'key' -%}
+                {{ k }}: "{{ datebucket[k] }}",
+{%- else -%}
+                {{ k }}: {{ datebucket[k] }},
+{%- endif -%}
+{%- endfor -%}
+            },
+{%- endfor -%}
+        ],
+        'xkey': 'key',
+        'ykeys': ['theguardiancom', 'wiredcom', 'spiegelde', 'sueddeutschede',
+                  'faznet', 'szde', 'sternde'],
+        'labels': ['The Guardian', 'Wired', 'Spiegel', 'SZ', 'FAZ', 'SZ', 'Stern'],
+        'hideHover': 'auto',
+//        'behaveLikeLine': true,
+        'resize': true
+    });
+});
+</script>
+{% endblock %}
