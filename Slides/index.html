@@ -1,0 +1,580 @@
+<!doctype html>
+<html lang="en">
+
+    <head>
+        <meta charset="utf-8">
+
+        <title>Elasticsearch, Twitter and some news</title>
+
+        <meta name="author" content="Hakim El Hattab">
+
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+        <link rel="stylesheet" href="css/reveal.min.css">
+        <link rel="stylesheet" href="css/theme/solarized.css" id="theme">
+
+        <!-- For syntax highlighting -->
+        <link rel="stylesheet" href="lib/css/zenburn.css">
+
+        <!-- If the query includes 'print-pdf', include the PDF print sheet -->
+        <script>
+            if( window.location.search.match( /print-pdf/gi ) ) {
+                var link = document.createElement( 'link' );
+                link.rel = 'stylesheet';
+                link.type = 'text/css';
+                link.href = 'css/print/pdf.css';
+                document.getElementsByTagName( 'head' )[0].appendChild( link );
+            }
+        </script>
+
+        <!--[if lt IE 9]>
+        <script src="lib/js/html5shiv.js"></script>
+        <![endif]-->
+    </head>
+
+    <body>
+
+        <div class="reveal">
+
+            <!-- Any section element inside of this container is displayed as a slide -->
+            <div class="slides">
+
+                <section>
+                    <h1>Elasticsearch, Twitter and some news</h1>
+                    <h3>Function scores and aggregations with ES</h3>
+                    <p><small>Daniel Trümper / <a href="http://twitter.com/truemped">@truemped</a></small></p>
+                </section>
+
+                <section>
+                    <h2>About me</h2>
+
+                    <aside class="notes">
+                        <ul>
+                            <li>working at rtr</li>
+                            <li>use search for almost everything</li>
+                            <li>learn clojure, renovate house</li>
+                        </ul>
+                    </aside>
+                </section>
+
+                <section>
+                    <h2>Elasticsearch</h2>
+                    <img src="images/es.png" />
+                    <p>distributed, RESTful, JSON, Lucene</p>
+                    <aside class="notes">
+                        <ul>
+                            <li>sharding, replication</li>
+                            <li>multiple nodes</li>
+                            <li>failover</li>
+                        </ul>
+                    </aside>
+                </section>
+
+                <section>
+                    <h2>This talk</h2>
+                    <p>Create a simple news aggregator using Twitter</p>
+                    <p>Rank news by retweets, favorites and time</p>
+                    <p>Insights into data</p>
+                    <p>Filter news</p>
+                </section>
+
+                <section>
+                    <section>
+                        <h2>Agenda</h2>
+                    </section>
+                    <section>
+                        <h2>Frontend</h2>
+                        <p><a href="http://startbootstrap.com/template-overviews/sb-admin-2/">Start Bootstrap Admin 2</a></p>
+                        <img src="images/sb-admin-2.png" />
+                    </section>
+                    <section>
+                        <h2>Data</h2>
+                        <p>Twitter Streaming API</p>
+                        <img src="images/twitter-streaming-api.png" />
+                    </section>
+                    <section>
+                        <h2>Function Score</h2>
+                        <p>Hacker News/Reddit style relevance</p>
+                        <img src="images/hn-score.png"/>
+                    </section>
+                    <section>
+                        <h2>Aggregations I</h2>
+                        <p>Simple aggregrations on domains</p>
+                        <img src="images/facets.png"/>
+                    </section>
+                    <section>
+                        <h2>Aggregations II</h2>
+                        <p>Histogram Aggregations</p>
+                        <img src="images/aggs-histogram.png"/>
+                    </section>
+                    <section>
+                        <h2>Aggregations III</h2>
+                        <p>Top Hits Aggregations for grouping</p>
+                        <img src="images/aggs-top-hits.png"/>
+                    </section>
+                </section>
+
+                <section>
+                    <section>
+                        <h2>Twitter Streaming API</h2>
+                        <p>
+                        <ul>
+                            <li>follow - a list of user ids</li>
+                            <li>track - keywords</li>
+                            <li>locations - geo bounding boxes</li>
+                        </ul>
+                        </p>
+                        <p>
+                            <a href="https://dev.twitter.com/streaming/reference/post/statuses/filter">https://dev.twitter.com/streaming/reference/post/statuses/filter</a>
+                        </p>
+                    </section>
+
+                    <section>
+                        <h3>Tracking URLs</h3>
+                        <p><b>track=theguardian com</b> matches tweets with links to <em>theguardian.com</em></p>
+                    </section>
+
+                    <section>
+                        <h3>A tweet with URLs</h3>
+                        <p>also contains the expanded full url</p>
+                        <pre><code class="json">
+"urls": [{
+    "url": "http://t.co/9bsuTIFUWs",
+    "indices": [29, 51],
+    "expanded_url": "http://www.theguardian.com/teacher-network/teacher-blog/2014/nov/17/how-to-teach-anti-bullying",
+    "display_url": "theguardian.com/teacher-networ…"
+}]
+                        </code></pre>
+                    </section>
+
+                    <section>
+                        <h2>in python</h2>
+                        <p>Using twython library</p>
+                        <pre><code class="python">
+class Streamer(TwythonStreamer):
+
+    def __init__(self, es):
+        self._es = es
+
+    def on_success(self, tweet):
+        self._es.index('news-tweets', 'tweet',
+                       tweet['id_str'], json.dumps(tweet))
+
+Streamer(Elasticsearch()).statuses.filter(
+    track='theguardian com', language='de,en')
+                        </code></pre>
+                    </section>
+
+                    <section>
+                        <h3>Retweets</h3>
+                        <ul>
+                            <li>contain the original tweet</li>
+                            <li>update retweets</li>
+                            <li>update favorites</li>
+                            <li>only the newest copy of a tweet indexed</li>
+                        </ul>
+                    </section>
+
+                    <section>
+                        <h3>Update the streamer</h3>
+                        <pre><code class="python">
+    def on_success(self, tweet):
+        if 'retweeted_status' in tweet:
+            tweet = tweet['retweeted_status']
+
+        self._es.index('news-tweets', 'tweet',
+                       tweet['id_str'], json.dumps(tweet))
+                        </code></pre>
+                    </section>
+
+                    <section>
+                        <h3>Deletions</h3>
+                        <p>Twitter notifies about deleted tweets</p>
+                        <pre><code class="python">
+    def on_success(self, tweet):
+        if 'delete' in tweet:
+            status_id = tweet['delete']['status']['id']
+            self._es.delete('news-tweets', 'tweet', status_id)
+            return
+
+        if 'retweeted_status' in tweet:
+            tweet = tweet['retweeted_status']
+
+        self._es.index('news-tweets', 'tweet',
+                       tweet['id_str'], json.dumps(tweet))
+                        </code></pre>
+                    </section>
+
+                    <section>
+                        <h3>Data enhancing</h3>
+                        <p>Add <b>domain</b> to the urls</p>
+                        <p>This allows for a simple filtering per news paper</p>
+                        <pre><code class="json">
+"urls": [{
+    "url": "http://t.co/9bsuTIFUWs",
+    "indices": [29, 51],
+    "expanded_url": "http://www.theguardian.com/teacher-network/teacher-blog/2014/nov/17/how-to-teach-anti-bullying",
+    "display_url": "theguardian.com/teacher-networ…",
+    "domain": "theguardian.com"
+}]
+                        </code></pre>
+                    </section>
+
+                    <section>
+                        <h3>Final Indexing Method</h3>
+                        <pre><code class="python">
+    def on_success(self, tweet):
+        if 'delete' in tweet:
+            status_id = tweet['delete']['status']['id']
+            self._es.delete('news-tweets', 'tweet', status_id)
+            return
+
+        if 'retweeted_status' in tweet:
+            tweet = tweet['retweeted_status']
+
+        for url in tweet['entities']['urls']:
+            if 'theguardian.com' in url['expanded_url']:
+                url['domain'] = 'theguardian.com'
+
+        self._es.index('news-tweets', 'tweet',
+                       tweet['id_str'], json.dumps(tweet))
+                        </code></pre>
+                    </section>
+                </section>
+
+                <section>
+                    <section>
+                        <h2>Timeline</h2>
+                        <p>Ranking news by <b>importance</b></p>
+                        <img src="images/hn-score.png"/>
+                    </section>
+                    <section>
+                        <h2>Hacker News</h2>
+                        <img src="images/Hacker_News.png">
+                    </section>
+                    <section>
+                        <h2>Ranking</h2>
+                        <p>Two components: votes and time since published</p>
+                        <p>&nbsp;</p>
+                        $$score = votes / (t+2)^{g}$$
+                        <p><br/><small>Nice blog post about HN/Reddit scoring: <a href="http://amix.dk/blog/post/19574">http://amix.dk/blog/post/19574</a></small></p>
+                    </section>
+                    <section>
+                        <h2>Gravity</h2>
+                        <p><b>g</b> determines the importance of time</p>
+                        <p>smaller <b>g</b> means more influence of votes</p>
+                    </section>
+                    <section>
+                        <h2>Example g=1.8</h2>
+                        <img src="images/hn-score-plot.png">
+                    </section>
+                    <section>
+                        <h2>g-Effect</h2>
+                        <img src="images/hn-score-plot2.png">
+                    </section>
+                    <section>
+                        <h2>Function Score in ES</h2>
+                        <pre><code class="python">
+def scoring(now, g=1.8):
+    return {"function_score": {
+            "query": {"match_all": {}},
+            "script_score": {
+                "params": {
+                    "g": g,
+                    "now": now,
+                },
+                "script": ("(doc['favorite_count'].value + " +
+                           "doc['retweet_count'].value) / " +
+                           "pow((now - doc['created_at'].value + 2), g)")
+        }}}
+                        </code></pre>
+                    </section>
+                    <section>
+                        <img src="images/hn-score2.png">
+                    </section>
+                    <section>
+                        <img src="images/hn-score3.png">
+                    </section>
+                </section>
+
+                <section>
+                    <section>
+                        <h2>Simple aggregations</h2>
+                        <p>Retrieve the top domains and the top hashtags</p>
+                    </section>
+                    <section>
+                        <h2>Domain</h2>
+                        <pre><code class="python">
+def domain():
+    return {'aggregations': {'domains': {
+        'terms': {'field': 'entities.urls.domain'}}}}
+                        </code></pre>
+                    </section>
+                    <section>
+                        <h2>Hashtags</h2>
+                        <pre><code class="python">
+def hashtags():
+    return {'aggregations': {'hashtags': {
+        'terms': {'field': 'entities.hashtags.text'}}}}
+                        </code></pre>
+                    </section>
+                    <section>
+                        <h2>ES response</h2>
+                        <pre><code class="json">
+{"aggregations": {
+    "domains": {
+        "doc_count_error_upper_bound": 0,
+        "sum_other_doc_count": 0,
+        "buckets": [
+            {
+                "key": "theguardian.com",
+                "doc_count": 5682
+            },
+            {
+                "key": "wired.com",
+                "doc_count": 1665
+            }
+        ]
+    }
+}}
+                        </code></pre>
+                    </section>
+                    <section>
+                        <h2>Frontend</h2>
+                        <img src="images/facets.png" alt="">
+                    </section>
+                </section>
+
+                <section>
+                    <section>
+                        <h2>Histogram of links per domain</h2>
+                        <img src="images/aggs-histogram.png">
+                    </section>
+                    <section>
+                        <h2>ES Aggregation basics</h2>
+                        <ul>
+                            <li>create buckets</li>
+                            <li>count documents per bucket</li>
+                            <li>sub-aggregations on each bucket</li>
+                        </ul>
+                    </section>
+                    <section>
+                        <h2>Date Histogram</h2>
+                        <pre><code class="python">
+def domain_histogram():
+    return {'aggregations': {'date_hist': {
+        'date_histogram': {
+            'field': 'created_at',
+            'interval': '1h'
+        }}}}
+                        </code></pre>
+                    </section>
+                    <section>
+                        <h2>Almost there</h2>
+                        <pre><code class="json">
+{"aggregations": {
+    "date_hist": {
+        "buckets": [
+            {
+                "key_as_string": "Fri Nov 21 05:00:00 +0000 2014",
+                "key": 1416546000000,
+                "doc_count": 253
+            },
+            {
+                "key_as_string": "Fri Nov 21 06:00:00 +0000 2014",
+                "key": 1416549600000,
+                "doc_count": 321
+            }
+        ]
+    }}}
+                        </code></pre>
+                    </section>
+                    <section>
+                        <h2>Sub-Aggregrations</h2>
+                        <pre><code class="python">
+def domain_histogram():
+    return {'aggregations': {
+        'date_hist': {
+            'date_histogram': {
+                'field': 'created_at',
+                'interval': '1h'
+            },
+            'aggregations': {
+                'domains': {
+                    'terms': {
+                        'field': 'entities.urls.domain'
+    }}}}}}
+                        </code></pre>
+                    </section>
+                    <section>
+                        <h2>ES response</h2>
+                        <p></p>
+                        <pre><code class="json">
+{"aggregations": {
+    "date_hist": {
+        "buckets": [
+            {
+                "key_as_string": "Fri Nov 21 05:00:00 +0000 2014",
+                "key": 1416546000000,
+                "doc_count": 253,
+                "domain": {
+                    "doc_count_error_upper_bound": 0,
+                    "sum_other_doc_count": 0,
+                    "buckets": [
+                        {
+                            "key": "theguardian.com",
+                            "doc_count": 149
+                        },
+                        {
+                            "key": "wired.com",
+                            "doc_count": 100
+                        }
+                        ...
+                    ]
+                }
+            }
+        ]
+    }
+}}
+                        </code></pre>
+                    </section>
+
+                    <section>
+                        <img src="images/aggs-histogram.png">
+                    </section>
+                </section>
+
+                <section>
+                    <section>
+                        <h2>Top tweets per domain</h2>
+                        <img src="images/aggs-top-hits.png"/>
+                    </section>
+                    <section>
+                        <h2>Aggregate domains</h2>
+                        <pre><code class="python">
+def topdomains():
+    return {'aggregations': {'top_tweets': {
+        'terms': {'field': 'entities.urls.domain'}}
+        }}
+                        </code></pre>
+                    </section>
+                    <section>
+                        <h2>Get the top hits per domain</h2>
+                        <pre><code class="python">
+def topdomains():
+    return {'aggregations': {'top_tweets': {
+        'terms': {'field': 'entities.urls.domain'}},
+        'aggregations': {'top_domain_hits': {
+            'top_hits': {}
+        }}}
+                        </code></pre>
+                    </section>
+                    <section>
+                        <h2>ES result</h2>
+                        <pre><code class="json">
+...
+"buckets": [{"key": "theguardian.com",
+    "doc_count": 6361,
+    "top_domain_hits": {
+        "hits": {
+            "total": 6361,
+            "max_score": 1.2440135e-14,
+            "hits": [{
+                    "_index": "news-tweets",
+                    "_type": "tweet",
+                    "_id": "535810990223687680",
+                    "_score": 1.2440135e-14,
+                    "_source": {...}
+                },{
+                    "_index": "news-tweets",
+                    "_type": "tweet",
+                    "_id": "535815107364651008",
+                    "_score": 8.234902e-15,
+                    "_source": {...}
+                }
+                ...
+            ]}}}]
+                        </code></pre>
+                    </section>
+                    <section>
+                        <h2>Sorting the buckets</h2>
+                        <p>Currently extra aggregator is necessary to ensure sorting of <b>terms</b> buckets</p>
+                        <pre><code class="python">
+def topdomains():
+    return {'aggregations': {'top_tweets': {
+        'terms': {'field': 'entities.urls.domain',
+                  'order': {'top_term': 'desc'}}},
+        'aggregations': {
+            'top_domain_hits': {'top_hits': {}},
+            'top_term': {'max': {'script': '_score'}}
+        }}}
+                        </code></pre>
+                    </section>
+                    <section>
+                        <h2>Result</h2>
+                        <img src="images/aggs-top-hits.png" alt="">
+                    </section>
+                </section>
+
+                <section>
+                    <h2>Crazy ideas</h2>
+                    <ul>
+                        <li>tweets per url</li>
+                        <li>download and index news</li>
+                        <li>extract more metadata (category, author...)</li>
+                        <li>classify news I read</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h1>THE END</h1>
+                </section>
+
+            </div>
+
+        </div>
+
+        <script src="lib/js/head.min.js"></script>
+        <script src="js/reveal.min.js"></script>
+
+        <script>
+
+            // Full list of configuration options available here:
+            // https://github.com/hakimel/reveal.js#configuration
+            Reveal.initialize({
+                controls: true,
+                progress: true,
+                history: true,
+                center: true,
+
+                theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+                transition: Reveal.getQueryHash().transition || 'none', // default/cube/page/concave/zoom/linear/fade/none
+
+                // Parallax scrolling
+                // parallaxBackgroundImage: 'https://s3.amazonaws.com/hakim-static/reveal-js/reveal-parallax-1.jpg',
+                // parallaxBackgroundSize: '2100px 900px',
+
+                math: {
+                    mathjax: 'http://cdn.mathjax.org/mathjax/latest/MathJax.js',
+                    config: 'TeX-AMS_HTML-full'  // See http://docs.mathjax.org/en/latest/config-files.html
+                },
+
+                // Optional libraries used to extend on reveal.js
+                dependencies: [
+                    { src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+                    { src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+                    { src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+                    { src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+                    { src: 'plugin/zoom-js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+                    { src: 'plugin/notes/notes.js', async: true, condition: function() { return !!document.body.classList; } },
+                    { src: 'plugin/math/math.js', async: true }
+                ]
+            });
+
+        </script>
+
+    </body>
+</html>
